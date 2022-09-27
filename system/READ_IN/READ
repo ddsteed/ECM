@@ -1,0 +1,113 @@
+                             Weiguo Sun    09/10/1996
+
+  A.)  Unit converting :
+
+
+     Energy  :  1 a.u. = 1 Hartree = 27.21139618 eV = 219475.2 (cm-1)
+
+     Length  :  1 a.u. = 1 Bohr (a_o) = 0.529177249 Angstrom (E-08 cm)
+                1/Angstrom = 0.529177249 a_o
+
+      Mass   :  1 amu  = 1822.888506 a.u.
+
+
+     Speed of light :  C = 137.035288 a_o/atu
+
+===========================================================================
+
+  B.) Notes from  code  secentv.f  : 
+
+c---------------------------------------------------------------------
+c  Method:
+c    Uses the Numerov method for propagating the wavefunction out
+c    from small r and in from large r on a given (equally spaced)
+c    mesh.  These waefunctions are matched together at some 
+c    intermediate r.  If they match smoothly, i.e if their 
+c    derivatives are the same at the matching radius, then the
+c    input energy is an eigenvalue and the returned wavefunction
+c    is the corresponding eigenfunction.
+c---------------------------------------------------------------------
+c  Input:
+c
+c    V          -  An EXTERNAL DOUBLE PRECISION FUNCTION taking one
+c                  argument, the radius, which returns the potential,
+c                  in Hartrees, at that radius.  If other parameters
+c                  are needed for the potential, they should be
+c                  provided by a common block.  (double precision)
+c
+c    Q          -  The INPUT energy, in Hartrees.  (double precision)
+c
+c    iel        -  The angular momentum quantum number.  (integer)
+c
+c    rmu        -  The reduced mass, in atomic units.  (double 
+c                  precision)
+c
+c    rmin       -  The minimum radius for the mesh.  (double precision)
+c
+c    rmatch     -  The matching radius.  This value should be in the
+c                  classically allowed region.  (double precision)
+c
+c    rmax       -  The maximum radius for the mesh.  (double precision)
+c
+c    h          -  The stepsize for the mesh.  (double precision)
+c
+c    ul1, ul2   -  The values of the "left" wavefunction (to be
+c                  propagated outward) at the first and second rmesh
+c                  points.  (double precision)
+c
+c    ur1, ur2   -  The values of the "right" wavefunction (to be
+c                  propagated inward) at the last and next to last
+c                  rmesh points.  (double precision)
+c---------------------------------------------------------------------
+c  Output:
+c
+c    wronsk     -  An un-normalized wronskian of the left and right 
+c                  wavefunctions.  (double precision)
+c
+c    Ecorr      -  The estimated correction to the input energy Q.
+c                  (double precision)
+c
+c    u          -  The normalized wavefunction on the input rmesh.
+c                  u(1) holds u at rmin, u(2) holds u at rmin+h,
+c                  etc.  (double precision)
+c---------------------------------------------------------------------
+c  Notes:
+c
+c    -  All values are in atomic units:  radii in bohr, energies in
+c       Hartrees.  also hbar=1.
+c
+c    -  The values of rmatch and rmax might be changed slightly to 
+c       ensure that they are on the mesh.  rmin will not be changed.
+c
+c    -  Ecorr is actually the wronskian of the two propagated
+c       *****
+c       normalized wavefunctions scaled by some constants.  That 
+c       this value may actually be interpreted as an energy correction
+c       depends on the calculated wavefunction being "close enough"
+c       to the correct eigenfunction.  This condition is not always
+c       met in practice, so some care must be used.  It is true,
+c                           **********************
+c       however, that when the wronskian is zero, the input energy
+c       is an eigenvalue.  Near an eigenvalue, wronsk varies 
+c                          *********************************
+c       smoothly with the input energy, so you can bracket the
+c       ******************************
+c       eigenvalue with this information.
+c
+c    -  Take care not to set rmin exactly equal to zero!  The
+c                 *************************************
+c       centrifugal term WILL blow up.  Use a very small value of
+c       r instead.
+c
+c    -  The notation used in the code is taken directly from the
+c       excellent reference "Practical Points Concerning the Solution
+c       of the Schrodinger Equation" by John M. Blatt, Journal of
+c       Computational Physics, v.1  pp 382-396 (1967).  Not all of
+c       the suggestions in the paper are implemented in this code.
+c
+===========================================================================
+
+  C.)  When you get "Floating Exception" :
+
+    1.>  Change the values of  rmin &/or rmax.
+

@@ -1,0 +1,10 @@
+                      Hao Feng
+                                       12/03/2002
+
+
+  1. The number of the lines in "Evib" should be consistent with
+         nbmax in "secentv.s"
+
+     If the lines in "Evib" < nbmax, then freely append the lines to
+     "Evib" so that the number of the lines in "Evib" >= nbmax.
+

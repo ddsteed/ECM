@@ -1,0 +1,201 @@
+C     program  vibrotE
+c 
+c     This program is to calculate the vibrational, or ro-vibrational
+c   threshold energies and channel energies.
+c----------------------------------------------------------------------
+      implicit real*8 (a-h,o-z)
+      dimension E(200),Eryd(200),Ethre(200),Echan(200),Eev(200)
+      dimension Evr(200,200),Eau(200),Evb(200),ar(200),av(200)
+c----------------------------------------------------------------------
+c
+c On input:
+c
+c        Mvr  = 1, for vibration; = 2 for rot-vibration; =0 for BOTH.
+c         NE  = The # of input energies
+c         Nv  = # of vibrational states considered
+c                Nv=6 means that v=0,1,2,3,4,5
+c         Nr  = # of rotational states considered
+c                Nr=9 means j=0,1,2,3,4,5,6,7,8
+c        iniv = Quantum # of the initial vibrational reference state
+c        jnir = Quantum # of the initial rotational reference state
+c                 (Usually take iniv=v0=0, jnir=j0=0)
+c
+c       E(i)  = The energies of the scattered partical (in eV)
+c   WE, WEXE  = Experimental vibrational energy constants (in Hartree)
+c   BE,ALFE,DE= Experimental rotational energy constants (in Hartree)
+c
+c   Using Herzberg's experimental formulae to calculate energies
+c
+c----------------------------------------------------------------------
+        rydev=13.60569809d0
+	auev=27.21139618d0
+	aucm=219474.6306d0
+c--- 
+      read (5,*) Mvr,NE,Nv,Nr,iniv,jnir,Nw
+        v0=DFLOAT(iniv)
+        r0=DFLOAT(jnir)
+      if (NE .gt. 0) then
+        read (5,*) (E(i), i=1,NE)
+      endif
+c-
+      read (5,*) WE,WEXE,WEYE
+      read (5,*) WEZE,WETE,WESE
+      read (5,*) BE,ALFE,DE
+        write(6,115) WE,WEXE,WEYE,WEZE,WETE,WESE,BE,ALFE,DE
+c--- 
+      if (Nw .eq. 0) then
+         WE  = WE/aucm
+        WEXE = WEXE/aucm
+        WEYE = WEYE/aucm
+        WEZE = WEZE/aucm
+        WETE = WETE/aucm
+        WESE = WESE/aucm
+      endif
+c--- 
+	if (Mvr .gt. 1) go to 50 
+          write(6,120) 
+      do 10 k=1,Nv 
+	kv=k-1   
+	av(k)=DFLOAT(kv) 
+	avn=av(k)
+c--- 
+c Ethre(k) are in Hartree
+	Ethre(k)=WE*(avn-v0) - WEXE*(avn*(avn+1)-v0*(v0+1))    
+	Eev(k)=Ethre(k)*auev
+c Convert energy from eV to Rydberg
+          Eryd(k)=Eev(k)/rydev
+c--- 
+	dife=Eev(k) - Eev(k-1)
+        write(6,130) kv,Eryd(k),Ethre(k),Eev(k),dife
+   10 continue  
+c
+      do 20 i=1,NE
+c Convert energy from eV to Hartree (a.u.)
+          Eau(i)=E(i)/auev
+          write(6,140) Eau(i),E(i)
+	do 15 k=1,Nv
+          kv=k-1
+	  Echan(k)=Eau(i) - Ethre(k)
+          Eev(k)=Echan(k)*auev
+          write(6,130) kv,Echan(k),Eev(k)
+   15   continue  
+   20 continue  
+          write(6,*)
+        if (Mvr .gt. 1) go to 900
+C       if (Mvr .gt. 0) go to 900
+c
+   50     write(6,150)
+c
+c Calculate the energy of the reference ro-vibrational state
+c
+	evib0=WE*(v0+0.5) - WEXE*(v0+0.5)**2 + WEYE*(v0+0.5)**3
+	evib0=evib0 + WEZE*(v0+0.5)**4 + WETE*(v0+0.5)**5
+	evib0=evib0 + WEZE*(v0+0.5)**6 
+	  r01=r0*(r0+1)
+	erot0=BE*r01 - ALFE*(v0+0.5d0)*r01 - DE*r01**2
+	Evr0=evib0 + erot0
+	Evb(1) = evib0
+c---
+      do 65 k=1,Nv
+        kv=k-1
+	av(k)=DFLOAT(kv)
+	avn=av(k)
+	av01=avn+0.5d0
+	Evibk=WE*av01 - WEXE*av01**2 + WEYE*av01**3
+	Evibk=Evibk + WEZE*av01**4 + WETE*av01**5
+	Evibk=Evibk + WESE*av01**6 
+        Evb(k) = Evibk
+C       Evb(k+1) = Evibk
+	  Devr=0.0d0
+       if (Nr .gt. 0) then
+         do 60 i=1,Nr
+	     ir=i-1
+            ar(i)=DFLOAT(ir)
+	    arj=ar(i)
+	    ar01=arj*(arj+1)
+            Eroti=BE*ar01 - ALFE*av01*ar01 - DE*ar01**2
+	  Evr(k,i)=Evibk + Eroti
+c Substract reference energy to get ro-vib. threshold energy
+	  Evr(k,i)=Evr(k,i) - Evr0
+	    if (i .gt. 1) Devr=Evr(k,i) - Evr(k,i-1)
+	  Evrev=Evr(k,i)*auev
+	   Devr=Devr*auev
+	   write(6,160) kv,ir,Evr(k,i),Evrev,Devr
+  60     continue
+ 	   write(6,*)
+       endif
+  65  continue
+c
+      IF (NE .gt. 0) THEN
+        do 80 i=1,NE
+	    Eau(i)=E(i)/auev
+	    write(6,170) Eau(i),E(i)
+	  do 75 k=1,Nv
+	    kv=k-1
+          do 70 j=1,Nr
+	     jr=j-1
+	    Echan(k)=Eau(i) - Evr(k,j)
+	    Eev(k)=Echan(k)*auev
+            write(6,160) kv,jr,Echan(k),Eev(k)
+  70      continue
+            write(6,*) 
+  75      continue
+  80    continue
+      ENDIF
+C---
+        write(6,200) 
+      do i=1,Nv
+        write(6,210) i-1, Evb(i)
+      enddo
+C-
+        write(6,220) 
+      do i=1,Nv
+        write(6,230) i-1, Evb(i)*aucm
+      enddo
+C-
+        write(6,240) 
+        write(6,230) 0, Evb(1)*aucm
+      do i=2,Nv
+         dif = Evb(i) - Evb(i-1)
+        write(6,230) i-1, dif*aucm
+C       write(6,230) i-1, Evb(i)*aucm, dif*aucm
+      enddo
+C----------------------------------------------------------------------
+  100 format(6i5)
+  105 format(f10.5)
+  110 format(3D16.8)
+  115 format(//2x,'   The input ro-vibrational constants are : '//,
+     #7x,'  WE ',11x,'WEXE',11x,' WEYE',12x,'WEZE',11x,' WETE',//,
+     #5E16.8,//
+     #7x,' WESE',7x,'  BE ',11x,'ALFE',11x,'  DE ',/,
+     #4E16.8,/)
+  120 format(/2x,'  * Vibrational threshold & channel energies *'//,
+     #3x,' The vibrational threshold energies are : ',//,
+     #3x,'      v     Ethre(Rydberg)    Ethre(a.u.)      Ethre(eV) ',
+     #'   Dif(v-1,v; eV)',/)
+  130 format(7x,i3,4f16.7)
+  140 format(///2x,' For scattering energy =',f12.6,'  au',f12.6,' eV',
+     #/,6x,' The channel energies (Ev = Kv**2 = 2*E) are : ',//,
+     #3x,'      v      Echan(a.u.)      Echan(eV)  ',/)
+C
+  150 format(/2x,' * Ro-vibrational threshold & channel energies *'//,
+     #3x,' The ro-vibrational threshold energies are : ',//,
+     #3x,'      v   j   Ethre(a.u.)   Ethre(eV)   Delta_Evj(eV) ',/)
+  160 format(7x,i3,i4,3f13.7)
+  170 format(///2x,' For scattering energy =',f12.6,'  au',f12.6,' eV',
+     #/,6x,' The channel energies (Evj = Kvj**2 = 2*E) are : ',//,
+     #3x,'      v   j   Echan(a.u.)   Echan(eV)  ',/)
+  200 format(//2x,'* Vibrational energies *'//,
+     #3x,'  v       Evib(a.u.) ',/)
+  210 format(3x,i3,E18.8)
+  220 format(//2x,'* Vibrational energies *'//,
+     #3x,'  v       Evib(cm-1) ',/)
+  230 format(3x,i3,F18.6,F16.6)
+  240 format(//3x,'* Vibrational energies *'//,
+     #3x,'  v    Delta_Evib(cm-1) ',/)
+C 240 format(//12x,'* Vibrational energies *'//,
+C    #3x,'  v       Evib(cm-1)    Delta_Evib(cm-1) ',/)
+C----------------------------------------------------------------------
+  900 stop
+      end
+

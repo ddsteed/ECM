@@ -1,0 +1,353 @@
+#!/bin/csh
+#              ECMrun.s
+#
+# 1.)  To evaluate the Potential Energy Curve; 
+#      Including SHO, Morse, MS, SMS, ECM, etc.,
+#      e.g. 
+#          The Sun-Feng's ECM potential is 
+#
+#          V_ecm(R) = V_MS(R) + Lamta(R)*delta_V(R)
+#          V_MS:  Murrell & Sorbie potential in which the
+#                 (a1,a2,a3, ...) are calculated using SF formulae.
+#          Lamta(R)   = lamta*(x/R)*[1-exp(-lamta^2*x/R)]
+#          delta_V(R) = V_MS - V_0
+#
+#          For  R < Re :
+#          ntn = 0, V_ecm(R) = V_MS   For ms = 3 ONLY ;
+#              For  ms = 4, 5 :
+#              = 1, V_ecm(R) = V_0,   V_0 = V_Morse   ;
+#              = 2, V_ecm(R) = V_0,   V_0 = V_Rydberg ;
+#              = 3, V_ecm(R) = V_0,   V_0 = V_PG      .
+#
+# 2.)  To find the ROOT of an user supplied ONE-dimensional function FUNC
+#      known to lie between x1 & x2.
+#
+# 3.)  To evaluate the EIGENfunctions, EIGENvalues & POTENTIALS of a 
+#      (central) spherical potential for a given set of (inputted or 
+#      internally calculated) GUESS-energies and a given potential.
+#==========================================================================
+
+  set   temp = '~/home3/feng/temp/job1'
+
+  cd   $temp
+    rm *
+
+#-----
+  set source = '~/home1/feng/bound/ecmpes/source'
+
+  set target = '~/home1/feng/bound/ecmpes/system/H2/X1sigmag+'
+ 
+  set   save = '~/home2/feng/store/ecmpes/H2/X1sigmag+'
+
+#-----
+
+  set  energy = 0   # Use Numerov method ( secentv.x ) to calculate energy.
+                    # It needs adjusting the file of Evib .
+                    # For SF potential, it doesn't work .
+                    
+# set  energy = 1   # Use renormalized Numerov method ( vibdm.x )
+                    # to calculate the energy .
+#-----  
+
+   if ( $energy == 1 ) then 
+      set  vibspec = 0 # Compare the deltaG of experiment & calculation .
+#     set  vibspec = 1 # Compare the  Evib  of experiment & calculation .
+#     set  vibspec = 2 # Calculate the vibrational spectra .
+   else if ($energy == 0) then
+      set  vibspec = 3 # For secentv.x 
+   endif
+#-----  
+
+#  Usually set work = 9 & mal = 2, and run  codes  for each
+#  set of De & Beta, then CHECK EIGENvalues & EIGENfunctions.
+
+#    For Morse case, set work = 3 ONLY !
+#    For Huxley-Murrell-Sorbie (HMS) potential, set  work = 8 ONLY !
+
+# Set working switch :
+#  set  work = 1    # For purpose 1; Find F's;  for given a1 find a's.
+#  set  work = 2    # For purpose 2 --> Find root a1
+#  set  work = 3    # For purpose 3 --> Waves, E_v & POT
+ 
+#  set  work = 8    # For purposes 1 & 2; Calc. pot
+   set  work = 9    # For ALL above 3 purposes
+ 
+# Set job switch :
+#  set   mal = 1    # Read data from fort.5 for every code;
+   set   mal = 2    # Read data generated from previous code.
+   
+   set  mal0 = $mal
+   
+#-----
+#      When vp = 1, set mtyp = 9, & ktyp = 9 in "secentv.s"
+   set  vp = 0      # Use analytical potential : SF, Morse, SHO, ...
+#  set  vp = 1      # Input NUMERICAL potential; V >= 0
+#
+#-----
+# ms = 3 for HMS V(R);  = 3, 4, 5 for SF (ECM) V_ecm(R) :
+   set  ms = 3      # Calculate (f2,...,f4; a1,...,a3)
+#  set  ms = 4      # Calculate (f2,...,f5; a1,...,a4)
+#  set  ms = 5      # Calculate (f2,...,f6; a1,...,a5)
+#
+#-----
+#     For  R < Re :
+   set ntn = 0      # Set V_ecm(R) = V_MS(R)      for ms=3 ONLY !
+#     For ms = 4, 5 :
+#  set ntn = 1      # Set V_ecm(R) = V_Morse(R)   ;
+#  set ntn = 2      # Set V_ecm(R) = V_Rydberg(R) ;
+#  set ntn = 3      # Set V_ecm(R) = V_PG(R)      .
+
+#-----
+#  The DISSOCIATION energy  De == d0 & parameter Beta=b0 :
+
+#---- For H2 - X1sigmag+
+#   De = 0.1819 a.u.
+#--- 
+   set d0 = 0.18186      # M2's 1999
+
+#- For SF potential, b0=1.0 always !
+# 
+   set b0 = 1.00
+
+#-------------------------------------------------------------------------
+ 
+         cp  $source/vibPOT.x     .
+         cp  $source/FINDroot.x   .
+         cp  $source/secentv.x    .
+         cp  $source/vibdm.x      .
+         cp  $source/calVIB.x     .
+         cp  $source/compdG.x     .
+         cp  $source/compE.x      .
+ 
+         cp  $target/vibPOT.s     .
+         cp  $target/FINDroot.s   .
+         cp  $target/Evib         .
+         cp  $target/EWpara       .
+         cp  $target/secentv.s    .
+ 
+         cp  $target/calVIB.s     .
+         cp  $target/compdG.s     .
+         cp  $target/compE.s      .
+         cp  $target/deltaG.exp   .
+         cp  $target/vibdm.s      .
+
+      if ($vp > 0) then
+         cp  $target/Vnum         .
+      endif
+#-------------------------------------------------------------------------
+
+   echo "                                              " >! Out.EconCMP
+   echo " Energy convergence information for ECM study " >> Out.EconCMP
+   echo "                  ms = $ms                    " >> Out.EconCMP
+   echo "                                              " >> Out.EconCMP
+   echo "  DifE_ave = |E_e-E_c|/E_e  is the average of " >> Out.EconCMP
+   echo "                energy percentage errors ;    " >> Out.EconCMP
+   echo "   Lambda -- adjustable parameter in V_ecm(R) " >> Out.EconCMP
+   echo "                                              " >> Out.EconCMP
+   echo "                                              " >> Out.EconCMP
+   echo "   Lambda      DifE_ave(arith)   DifE_ave(weighted)  " >> Out.EconCMP
+   echo "                                              " >> Out.EconCMP
+
+#-------------------------------------------------------------------------
+
+#- Loop over pot. variational parameter Lambda la0 :
+   foreach la0 (1.0)    # BEST as ms=3 for Lofthus;  1977 (Re=2.02 a0)
+
+#-----
+# bryd - The variational constant used to adjust Vryd(R).
+#        Vryd(R) = -De *[ 1 + a*(R-Re) ] *exp[-a*(R-Re) ]
+#                       a = b * dsqrt( amu/De )
+#          b=We + bryd*WeXe ;  originally, b=We.
+#        Vryd(R) is used to calculate force constants f'n
+#        by using numerical derivatives.
+# bryd is meaningless for Vmorse & Vpseudo_gaussian.
+
+    foreach  bryd (1.00)
+#--------------------------------------------------------------------------
+
+     if ($work == 1) goto run1
+     if ($work == 2) goto run2
+     if ($work == 3) goto run3
+     if ($work >= 8) goto run1
+
+#==========================================================================
+  run1:
+
+# If use NUMERICAL potential, goto run3
+     if ($vp > 0) goto run3
+
+#--- Set initial value for the ROOT a1 :
+       set  aini = 0.0
+
+      nice +4  vibPOT.s   $d0 $b0 $mal $aini $la0 $ms $ntn $bryd
+
+      cp  fort.5  inPOT$b0.L$la0
+      cp  fort.6  OutPOT$b0.L$la0.bryd$bryd
+      cp  fort.6  $save/POTout.L$la0
+#     cp  fort.6  $target/POTb.$bryd
+#     cp  fort.35   CONSTandEvj
+
+        if ($work < 8) goto endit
+#==========================================================================
+  run2:
+    
+        if ($work == 8) then
+          set mal = $mal0
+        endif
+         
+      nice +4  FINDroot.s   $d0  $b0  $mal  $la0  $ms
+
+      cp  fort.5      inROOT$b0.L$la0
+      cp  fort.6      OutROOT$b0.L$la0
+#     cat fort.6  >>  $save/SUNaa
+
+#==========================================================================
+    if ($work == 8) then
+
+        set  aini = 99.0
+        set   mal = 0
+
+      nice +4  vibPOT.s   $d0 $b0 $mal $aini $la0 $ms $ntn $bryd
+
+        cp  fort.4        Out.an
+        cp  fort.5        inPOT$b0.L$la0
+        cp  fort.6        Out.vibPOT
+        cp  fort.6        Out.Vshift.L$la0
+        mv  fort.8        Out.Vpot3
+        cp  fort.9        Out.VecmMS.$ms
+        mv  fort.9        $save/Out.VecmMS.$ms
+        mv  fort.10       Out.VecmDif
+        cp  fort.11       Out.VpotMS.shift
+        mv  fort.11       $save/Out.VpotMS.shift
+        mv  fort.13       Out.Vecm3.shift
+        mv  fort.14       Out.Vecm.shift.L$la0
+        mv  fort.15       Out.Vmorse.shift
+        mv  fort.16       Out.Vrydbg.shift
+        mv  fort.17       Out.Vpg.shift
+
+    endif
+
+         if ($work < 9) goto endit
+#==========================================================================
+  run3:
+
+ echo "           "
+ echo "           "
+ echo "  Calculate wavefunctions & potentials of a central potential "
+
+      echo "                                                "
+      echo "      Now begin to compute the bound energies . "
+      echo "                                                "
+
+        set   aini = 99.0
+        set   fmal = 0
+
+      nice +4  vibPOT.s   $d0 $b0 $fmal $aini $la0 $ms $ntn $bryd
+
+        cp  fort.4        Out.an
+        cp  fort.5        inPOT$b0.L$la0
+        cp  fort.6        Out.vibPOT
+        cp  fort.6        Out.Vshift.L$la0
+        mv  fort.8        Out.Vpot3
+        cp  fort.9        Out.VecmMS.$ms
+        mv  fort.9        $save/Out.VecmMS.$ms
+        mv  fort.10       Out.VecmDif
+        cp  fort.11       Out.VpotMS.shift
+        mv  fort.11       $save/Out.VpotMS.shift
+        mv  fort.13       Out.Vecm3.shift
+        mv  fort.14       Out.Vecm.shift.L$la0
+        mv  fort.15       Out.Vmorse.shift
+        mv  fort.16       Out.Vrydbg.shift
+        mv  fort.17       Out.Vpg.shift
+
+#===  Use Numerov method ( secentv.x )  :
+    if ( $energy == 0 ) then
+
+      nice +4  secentv.s    $d0  $b0  $mal  $la0  $ms  $ntn
+
+      cp  fort.5      inWAVE$b0.L$la0
+      cp  fort.6      OutWAVE$b0.L$la0
+      cp  fort.6      $save/outBeta$b0.L$la0
+      cp  out.cal     out.cal.$b0.L$la0
+
+#     cp  fort.6      $save/Morse/out$d0.L$la0
+# Open next line for 1st run ONLY :
+#     cp  fort.19     $target/Evib
+# Goto $target & modify files   EWpara  &  Evib   after each run
+
+#---   Use renormalized Numerov method ( vibdm.x )  :
+#===
+    else if ( $energy == 1 ) then
+
+      nice +4  vibdm.s    $d0  $b0  $mal   $la0   $ms  $ntn
+
+        rm  fort.8
+        mv  fort.5        inVIBDM.dat 
+        mv  fort.7        Evib.guess
+        mv  fort.10       Out.vibdm
+        mv  fort.18       Out.AX=b
+
+#       cp  Evib.guess    $target/Evib
+        cp  Evib.guess    $target/Evib.L$la0
+#       cp  Out.vibdm     $target/Out.vibdm
+
+    endif
+
+# --      Compare the deltaG of experiment & calculation  :
+      if ( $vibspec == 0 ) then
+
+  	 nice +4   compdG.s  $la0 
+
+         cp     fort.14            Out.Econvg
+         cp   Out.Econvg           Out.Econvg.L$la0
+         cp   Out.Econvg     $save/Out.Econvg.L$la0
+         cat    fort.15   >>       Out.EconCMP
+         cat    fort.15   >> $target/Out.EconCMP
+
+# --      Compare the  Evib  of experiment & calculation :
+      else if ( $vibspec == 1 ) then
+
+         nice +4   compE.s 
+
+         cp  fort.14  Evib.comp
+#        cp  fort.14  $save/Evib.comp.L$la0
+
+# --      Calculate the vibrational spectra  :
+      else if ( $vibspec == 2 ) then
+
+         nice +4    calVIB.s 
+
+         cp  fort.14  Out.spectra
+         cp  fort.14  $save/Out.spectra.L$la0
+
+      endif
+
+#==========================================================================
+
+  endit:
+
+    echo "                                                 "
+    echo "                  Finish calculation for         "
+    echo "     De = $d0, Beta = $b0, Lamda = $la0, bryd = $bryd    "
+    echo " ***                                                ***** "
+
+  end
+ end
+#-------------------------------------------------------------------------
+
+ echo "                                                "
+ echo "   =========================================================== "
+ echo "                                                "
+ echo "        The temporatory result is in  $temp    "
+ echo "                                                "
+ echo "                                                "
+
+ echo "   =========================================================== "
+ echo "                                                "
+ echo "        The result is in $save                 "
+ echo "                                                "
+ echo "   =========================================================== "
+ echo "                                                "
+
+#
+

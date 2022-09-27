@@ -1,0 +1,1420 @@
+C     program  vibPOT
+c-----------------------------------------------------------------
+c          Modified by   Weiguo Sun   07/03/1999
+c
+c     This program is to calculate the vibrational potentials
+c   for diatomic molecules :
+c 1.) MORSE:      V(R) = De*{ exp(-2*alpha*x) - 2*exp(-alpha*x) }
+c             where     x = (R-Re)/Re
+c 2.) Harmonic Oscillator:      V(R) = k*(R-Re)**2/2
+c
+c 3.) Sun's Modified Murrell-Sorbie (x=R-Re) :
+c           V_SMMS(R)=-De*beta*(1/beta + a1*x + a2*x**2 
+c                                 + a3*x**3 + ...)*exp(-a1*beta*x)
+c
+c 4.) Huxley-Murrell-Sorbie (x=R-Re) :
+c        V_MS(R)=-De*(1 + a1*x + a2*x**2 + a3*x**3 + ...)*exp(-a1*x)
+C
+C 5.) SF (ECM) : V_ecm(R) = V_MS + Lamta(R)*delta_V(R)
+c          V_MS:  Murrell & Sorbie potential in which the
+c                 (a1,a2,a3) are calculated using SF formulae.
+c          Lamta(R)   = lamta*(x/R)*[1-exp(-lamta^2*x/R)]
+c          delta_V(R) = V_MS - V_0
+c            For  R < Re :
+C      Nturn = 0, V_ecm(R) = V_MS  For ms = 3 ONLY ;
+C            = 1, V_ecm(R) = V_0,  V_0 = V_Morse   ;
+C            = 2, V_ecm(R) = V_0,  V_0 = V_Rydberg ;
+C            = 3, V_ecm(R) = V_0,  V_0 = V_PG      .
+C
+C    The program will output the cofficients an of MS potential 
+C  to fort.4  when energy = 1 .
+C                  ==========
+C
+C  NOTES :
+C
+C 1.>  !!!  Search for  "NP=" & "NP1=" !!!
+C
+C 2.>   *   Whenever the subroutine "funcv" or the function "fmin"
+C         is used,  the "fvec" array defined in common is CHENGED  *
+C
+c-----------------------------------------------------------------
+      implicit real*8 (a-h,o-z)
+      dimension  rr(2500),v(2500),u(2500),ff(40),an(20)
+      dimension  vmos(2500),vryd(2500),vpg0(2500)
+      dimension  ums0(2500),vms0(2500)
+      common /aafcom/ aaf(4,10)
+      common /fms/ ms
+      common /spectra/ amu,Re,We,WeXe,WeYe,WeZe,alphae,gamae  
+c-----------------------------------------------------------------
+c  Read data :
+c      M = 1, calculate Morse vibrational potentials;
+c        = 2, calculate Harmonic Oscillate potentials.
+c        = 3, calculate Sun-Feng (ECM) potentials.
+c        = 4, calculate Murrell-Sorbie potentials.
+C
+c      N -- the number of potential energies wanted;
+c     De -- the energy scaling constant ("ionization energy");
+c     Re -- the equilibrium internuclear distance (R in a.u.);
+c     R1 -- the beginning R value;
+c     R2 -- the end R value.
+c
+c   beta == width (adjustable) parameter for SMMS.
+c alamta == lamta, variational adjustable parameter for ECM.
+c----------------------------------
+c  For Morse potential :
+c  alpha -- exponential parameter;
+c----------------------------------
+c  For Harmonic oscillator :
+c    amu -- the reduced mass (a.u.)
+c     We -- vibrational constant (a.u.)
+c----------------------------------
+c  For Murrell-Sorbie potential :
+c    a1, a2, a3 -- The expansion coefficients in units of
+c                  a1(ao-1), a2(a0-2), a3(ao-3).
+c        iforce -- =0, do NOT calculate spectroscopic parameters;
+c                  =1, calculate f2, f3, f4 for Harmonic Oscillator.
+c                  =2, calculate f2, f3, f4 for NON-Harmonic Oscillator.
+c                       iforce=1, & 2 corresponds to Sun's formulae.
+c                  =3, calculate f2, f3, f4 Using Sun-Feng formulae.
+c                  =4, calculate f2, f3, f4 Using Hurley-Murrell formulae.
+c                       (If a1 =/= 0.0, HM's a2 & a3 are also obtained)
+c
+c        ishift -- =0, do NOT shift the potential V(i);
+c                  >0, shift V(i) such that the V_minimum is ZERO.
+c           amu -- the reduced mass (in a.u.) of the molecule.
+c            we -- vibrational constant (in a.u.) of the molecule.
+c
+c            ms -- The highest power in the expansion of the MS potential.
+c                    For Huxley & Murrell, set ms = 3 ONLY !
+c                    For Sun's fformula,   set 10 > ms >= 3 .
+c
+c          mall -- = 1, calculate f2,...,f6, & potentials.
+c                  > 1, calculate f2,...,f6 ONLY.
+c
+c   For iforce > 0,  a1 =/= 0.0,  a2=0.0 (input value), the code 
+c will calculate a2 & a3.
+c      *****************
+c=========================================================================
+      read (5,*) M
+	if (M .eq. 2) go to 30
+	if (M .eq. 3) go to 50
+	if (M .eq. 4) go to 50
+      read (5,*) N,De,Re,alpha,R1,R2,Add
+c-------------------------------------
+        Rdel=(R2-R1)/N
+        R=R1-Rdel
+        write(6,510) 
+      do 10 i=1,N
+        R=R+Rdel
+        x=(R-Re)/Re
+        rr(i)=R
+        v(i)=De*(dexp(-2.0d0*alpha*x) - 2.0d0*dexp(-alpha*x))
+        write(6,520) rr(i),v(i)
+        write(7,520) rr(i),v(i)+Add
+   10 continue
+	go to 800
+C-------------------------------------------------------------------
+   30 read (5,*) N,amu,Re,We,R1,R2
+	ak=amu*We**2
+        Rdel=(R2-R1)/N
+        R=R1-Rdel
+        write(6,515) 
+      do 40 i=1,N
+        R=R+Rdel
+	rr(i)=R
+	v(i)=0.50d0*ak*(R-Re)**2
+        write(6,520) rr(i),v(i)
+   40 continue
+	go to 800
+C-------------------------------------------------------------------
+C    an(1) MUST be solved using code FINDroot.f
+C       De in Hartree; Re, R1 & R2 in ao;
+C       we in Hartree; amu in AMU.
+C            ff(2) in Hartree*/(a_o**2)
+C            ff(3) in Hartree*/(a_o**3)
+C            ff(4) in Hartree*/(a_o**4)
+C            ff(5) in Hartree*/(a_o**5)
+C            ff(6) in Hartree*/(a_o**6);
+C    an(1) in 1/a_o     ;  an(2) in 1/(a_o**2);
+C    an(3) in 1/(a_o**3);  an(4) in 1/(a_o**4);
+C    an(5) in 1/(a_o**5).
+C-------------------------------------------------------------------
+   50     read(5,*) N,iforce,ishift,ms,mall,iu
+          read(5,*) De,beta,alamta,Re,R1,R2,an(1)
+          read(5,*) Add, Nad, Nturn
+C---
+            a1 = an(1)
+          if (an(1) .gt. 95.0) then
+            read(4,*) a1
+              an(1) = a1
+          endif
+C---
+            D1 = De*beta
+C-------------------------------------------------
+C  Calculate force constants f & coefficients an.
+C=================================================
+        read (5,*) Imu
+        read (5,*) amA,amB,amu1
+        read (5,*) We,WeXe,WeYe,WeZe
+        read (5,*) alphae,gamae
+C
+C--- Prepare CONVERSION factors :
+           utoh = 3.42317725E+07
+           cmao = 5.29177249E-09
+           aucm = 219474.63067
+	 autocm = aucm
+           AMAE = 1.6605655D-27/9.1093897D-31
+	  RBOHR = 0.529177249D0
+C-------------------------------------------------
+C     AMAE=mass_unit/mass_e
+C     AMAE=1.6605655D-27/9.1093897D-31
+C     AMAE=1822.9163
+C-------------------------------------------------
+        if (iu .eq. 1) then
+	     Re = Re/RBOHR
+	     R1 = R1/RBOHR
+	     R2 = R2/RBOHR
+             We = We/autocm
+	   WeXe = WeXe/autocm
+	   WeYe = WeYe/autocm
+	   WeZe = WeZe/autocm
+         alphae = alphae/autocm
+          gamae = gamae/autocm
+	else if (iu .eq. 0) then
+	endif
+
+	write(6,501) Re*RBOHR,Re 
+	write(6,502)
+	write(6,503)'   We = ',We*autocm,' cm_1  = ',We, ' H.a.u.'
+	write(6,503)' Wexe = ',Wexe*autocm,' cm_1  = ',Wexe, ' H.a.u.'
+	write(6,503)' Weye = ',Weye*autocm,' cm_1  = ',Weye, ' H.a.u.'
+	write(6,503)' Weze = ',Weze*autocm,' cm_1  = ',Weze, ' H.a.u.'
+	write(6,503)'alphe = ',alphae*autocm,' cm_1  = ',alphae, ' H.a.u.'
+	write(6,503)'gamae = ',gamae*autocm,' cm_1  = ',gamae, ' H.a.u.'
+C---
+        if ( Imu .eq. 1 ) then
+          AMU=( AMB*AMA/(AMA+AMB) )*AMAE
+        else if ( Imu .eq. 2 ) then
+          AMU = AMU1*AMAE
+        endif
+
+      IF (iforce .eq. 0) goto 75
+
+C--- Prefactor :
+            ss0 = 0.021657164d0
+C--- Calculate the nth spectroscopic parameters
+C      f2 is in Hartree/(a_o**2).   f2 has CORRECT value
+C    when multiplied by prefactor ss0.
+C---      using Weiguo Sun's formulae
+C      For NON-Harmonic Oscillator : 
+C    f2 = ss0* 4*pi*pi*C*C * amu*we*we = ss0* 1.000004496 * amu*we*we
+C
+           f2=ss0*1.000004496*(utoh*amu)*(aucm*we*cmao)**2
+           ff(2)=f2
+           an(2)=0.5d0*(a1**2 - f2/D1)
+C-------------------------------------------------------------
+C--- Sun's formulae :
+         if ( iforce .eq. 2 ) then
+           do 60 k=3,ms+1
+                temp = (- 1.0)**k * 2.0d0*(k-1)
+                temp = temp*dsqrt(f2**k)/facx(k)
+               ff(k) = temp/(D1**(k/2.0d0 - 1.0) )
+  60       continue
+
+
+               write(6,530) alamta,De,beta,D1
+             do k=2,ms+1
+               write(6,550) k, ff(k)
+               write(27,*) ff(k)
+             enddo
+               write(2,560) (ff(k), k=2,ms+1)
+
+
+             IF (mall .gt. 1) GOTO  800
+c--------
+               do 65 k=3,ms
+                 temp = - 0.5d0*ff(k)/D1 + (-a1)**k *(k-1)/facx(k)
+                 do i=2,k-1
+                   temp = temp - (-a1)**(k-i)*an(i)/facx(k-i)
+                 enddo
+                 an(k) = temp
+  65           continue
+
+               write(6,540) 
+             do k=1,ms
+               write(6,550) k, an(k)
+               write(3,560) an(k)
+             enddo
+         endif
+c
+C===  Feng's formulae (used in ECM) :
+c
+        if ( iforce .eq. 3 ) then 
+	       read(12,*) ini, method
+  	     do 111 k = 2,ms+1
+  	        read(12,*) ff(k)
+111  	     continue
+
+  	       ff(2) = amu*we*we
+          if ((ms .eq. 4) .or. (ms .eq. 5)) then
+c
+c -----   Calculate (f2,...,f5) for ms=4 or (f2,...,f6) for ms=5 :
+c -----   There are 6th cofficients in ff. But it fails now.
+c
+               if (ini .eq. 1) then
+  	         call calaaf
+  	           Nff = ms - 1
+  	         call calff(ff,Nff,40,method)
+ 	       endif
+c
+c--------------------------------------------------- 
+c---  Rydberg nth force constants
+c           b = dsqrt(ff(2)/De)
+c    	      do 112 i = 3, ms+1
+c	        ff(i) = (-1)**i*(i-1)*ff(2)*b**(i-2)
+c112 		continue
+c---  Morse nth force constants
+c           a = dsqrt(0.5d0*ff(2)/De)
+c           do 113 i = 3, ms+1
+c	        ff(i) = ff(2)*(-1)**i*(2**(i-1)-1)*a**(i-2)
+c113 		continue
+c--------------------------------------------------- 
+c
+          else if (ms .eq. 3 .and. ini .eq. 1) then
+c -----        Calculate f2, f3, and f4 ONLY
+c
+  	           a = amu*We
+                  fa = 1675.0d0/(48.0d0*amu*We*We)
+                  fb = -12.0d0*Re*(amu*We*Re)**2
+                  fc = -36.0d0*amu**3*We**4*Re**2 
+                  fc = fc - 24.0d0*Re*(amu*We*Re)**5*alphae
+                  fc = fc - 335.0d0*amu**2*We**2*WeXe
+               ff(3) = 0.5d0*(-fb-dsqrt(fb*fb-4.0d0*fa*fc))/fa
+               ff(4) = 5.0d0*ff(3)*ff(3)/(3.0d0*amu*We*We) 
+               ff(4) = ff(4) - 16.0d0*(amu*We)**2*WeXe
+C --------
+c              ff(5) = De*a1**5-10.0d0*ff(2)*a1**3-10.0d0*ff(3)*a1**2
+c    #  -  5.0d0*ff(4)*a1
+c              ff(6) = De*a1**6-15.0d0*ff(2)*a1**4-20.0d0*ff(3)*a1**3
+c    #  - 15.0d0*ff(4)*a1**2-6.0d0*ff(5)*a1
+C --------
+          endif
+c--------------------------------------------------- 
+c  Calculate coefficients an(i) using the above f's
+c--------------------------------------------------- 
+               write(6,531) alamta, De
+             do k=2,ms+1
+               write(6,550) k, ff(k)
+               write(27,*) ff(k)
+             enddo
+               write(2,560) (ff(k), k=2,ms+1)
+c
+           IF (mall .gt. 1) GOTO  800
+       
+               an(2) = 0.5d0*(a1*a1-ff(2)/De)
+               an(3) = a1*an(2)-a1**3/3.0d0-ff(3)/(6.0d0*De)
+             if (ms .ge. 4) then
+               an(4) = (a1**4-6.0d0*ff(2)*a1*a1/De-4.0d0*ff(3)*a1/De
+     #                  - ff(4)/De)/24.0d0
+             endif
+               if (ms .ge. 5) then
+                 an(5) = (a1**5-10.0d0*ff(2)*a1**3/De-10.0d0*ff(3)*
+     #                 a1*a1/De-5.0d0*ff(4)*a1/De-ff(5)/De)/120.0d0
+               endif
+
+               write(6,541) 
+             do k=1,ms
+               write(6,550) k, an(k)
+               write(3,560) an(k)
+             enddo
+c
+        endif
+c
+C===  End Feng's formulae.
+C
+C------------------------------------------------------------------
+C=== Huxley & Murrell: J. Chem. Soc. Faraday Trans 2, 79, 323(1983) 
+C      For Huxley-Murrell-Sorbie's formulae :
+C
+         if (iforce .eq. 4) then
+             read (5,*) wexe, be, ae
+		 if ( iu .eq. 0) then
+		 else if (iu .eq. 1) then
+		   wexe = wexe/autocm
+		     be = be/autocm
+		     ae = ae/autocm
+		 endif
+
+               write(98,*) " wexe = ",wexe
+               write(98,*) " be = ",be
+               write(98,*) " ae = ",ae
+               write(6,570) 
+           f0 = 1.0 + ae*we/(6.0*be**2)
+C----- For non-harmonic model
+C          f2=1.000004496*amu*we*we
+C----- For harmonic model
+           f2=amu*we**2
+           f3 = - 3.0*f2*f0/Re
+           f4 = f2*( 15.0*f0*f0 - 8.0*wexe/be )/(Re*Re)
+                write(6,580) f2,f3,f4
+                write(2,560) f2,f3,f4,f5,f6
+            if (a1 .ne. 0.0d0) then
+              an(2) = 0.5d0*(a1**2 - f2/De)
+              an(3) = a1*an(2) - a1**3/3.0d0 - f3/(6.0*De)
+                write(6,590) an(1),an(2),an(3)
+            endif
+c
+C--- Huxley-Murrell coefficients are ready for V_hms(R)
+c
+         endif
+C=================================================
+C  Calculate diatomic potentials if an are ready
+C-------------------------------------------------
+  75    Rdel=(R2-R1)/N
+           R=R1-Rdel
+        if (M .eq. 3) then
+          write(8,600) 
+          write(9,610) ms
+          write(10,615) 
+          write(13,655) 
+          write(14,660) 
+          write(15,670) 
+          write(16,680) 
+          write(17,690) 
+        elseif (M .eq. 4) then
+          write(8,605) 
+          write(11,665) 
+        endif
+           i1 = 0
+C-------------------------
+C- Prepair  3-term Huxley-Murrell-Sorbie potential V_hms(R)=u(i) ;
+C      OR :
+C- Prepair  3-term Murrell-Sorbie potential V_ms(R)=u(i) ;
+C- Prepair ms-term Murrell-Sorbie potential V_ms(R)=v(i) .
+C    These potentials used Sun-Feng formulae for coefficients a(n).
+C=========================
+         Rtemp = 0.0d0
+         Vtemp = 0.0d0
+      do 80 i=1,N
+          R=R+Rdel
+        if ((R-Re) .ge. 0.5d0 .and. i1 .eq. 0) i1=i
+          x=R-Re
+          temp=1.0d0/beta
+        do k=1,ms
+          temp=temp + an(k)*x**k
+          if (k .eq. 3) temp3=temp  
+        enddo
+          rr(i)=R
+C---
+C-   v/u might be the V_hms(R) OR the V_ms(R; SF coefficients)   
+C---
+          v(i) = - De*beta*temp*dexp(-a1*beta*x) 
+          u(i) = - De*beta*temp3*dexp(-a1*beta*x) 
+c
+C=== Prepair Sun-Feng (ECM) potential for M = 3 :
+c
+   	  IF ( M .eq. 3 ) THEN
+c
+C- For Morse potential
+ 	         f2 = amu*We*We
+    	       alph = dsqrt(0.5d0*f2/De)
+  	     Vmorse = De*(dexp(-2.0d0*alph*x)-2.0d0*dexp(-alph*x))
+  	    vmos(i) = Vmorse
+c
+C- For Rydberg potential
+  	        Ralph = dsqrt(f2/De)
+  	     Vrydberg = -De*(1.0d0+Ralph*x)*dexp(-Ralph*x)
+  	      vryd(i) = Vrydberg
+C
+C- For Pseudo-Gaussion (PG) potential
+ 	     Pbeta = 0.5d0*dsqrt(4.0d0+f2*Re*Re/De) - 1.0d0
+   	     Pf1 = 1.0d0-(Re/R)*(Re/R)
+   	     Pf2 = 1.0d0-(R/Re)*(R/Re)
+  	     Vpg = -De*(1.0d0+Pbeta*Pf1)*dexp(Pbeta*Pf2)
+         vpg0(i) = Vpg
+c
+c- For Sun-Feng (ECM) potential :
+c
+c- fy is the force-field variational function  LAMDA(R)
+c
+  	      fy = (x/R)
+		if (ms .eq. 3) then
+		  fy = fy
+		else if (ms .eq. 4) then
+		  fy = (dabs(fy))**(1.0001d0)*x/dabs(x)
+		else if (ms .eq. 5) then
+		  fy = (dabs(fy))**(2.0001d0)*x/dabs(x)
+		endif
+     	      fy = fy*(1.0d0-dexp(-alamta**2.0d0*(x/Re)))
+     	      fy = fy*alamta
+         vms0(i) = v(i)
+         ums0(i) = u(i)
+C---
+             Vsf1 = v(i)
+          if     (Nturn .eq. 0) then
+             Vsf2 = Vmorse
+          elseif (Nturn .eq. 1) then
+             Vsf2 = Vmorse
+          elseif (Nturn .eq. 2) then
+             Vsf2 = Vmorse
+          elseif (Nturn .eq. 3) then
+             Vsf2 = Vrydberg
+          elseif (Nturn .eq. 4) then
+             Vsf2 = Vpg
+          endif
+C---
+C  Next v(i) is the ms-term ECM potential 
+C---
+  	     v(i) = (fy+1.0d0)*Vsf1 - fy*Vsf2
+c---
+C  Next u(i) is the 3-term ECM potential 
+C---
+             Vsf1 = u(i)
+  	     u(i) = (fy+1.0d0)*Vsf1 - fy*Vsf2
+C---
+C=== Finish Sun-Feng (ECM) potential
+c
+ 	  ENDIF
+c
+   80 continue     
+C========================================
+C Find the switch value, Rtemp, of R
+C----------------------------------------
+           R=R + Rdel
+           Rtemp = 0.0
+      do 100 i=N, 2, -1
+           R=R - Rdel
+        if (R .lt. Re .and. Rtemp .eq. 0.0) then
+            Rtemp = R
+            Vecm0 = v(i)
+          if (Nturn .eq. 0) then
+             Vdif = dabs( v(i)-vms0(i) )
+             Vmsp = vms0(i)
+          elseif (Nturn .eq. 1) then
+             Vdif = dabs( v(i)-vmos(i) )
+             Vmsp = vmos(i)
+          elseif (Nturn .eq. 2) then
+             Vdif = dabs( v(i)-vryd(i) )
+             Vmsp = vryd(i)
+          elseif (Nturn .eq. 3) then
+             Vdif = dabs( v(i)-vpg0(i) )
+             Vmsp = vpg0(i)
+          endif
+            Vtemp = Vdif
+        endif
+  100 continue
+C---------------------------------------------
+C Set v(i) = Vecm = vmos(i)  for R =< Rtemp
+C---------------------------------------------
+           R=R1-Rdel
+      do i=1, N
+           R=R +Rdel
+        if ((M .eq. 3) .and. (R .le. Re)) then
+          if     (Nturn .eq. 0) then
+            v(i) = v(i)
+            u(i) = u(i)
+          elseif (Nturn .eq. 1) then
+            v(i) = vms0(i)
+            u(i) = ums0(i)
+          elseif (Nturn .eq. 2) then
+            v(i) = vmos(i)
+            u(i) = vmos(i)
+          elseif (Nturn .eq. 3) then
+  	      v(i) = vryd(i)
+  	      u(i) = vryd(i)
+          elseif (Nturn .eq. 4) then
+  	      v(i) = vpg0(i)
+  	      u(i) = vpg0(i)
+          endif
+        endif
+          write(8,520)  rr(i),u(i)
+          write(9,520)  rr(i),v(i)
+          write(10,520) rr(i),v(i)-u(i)
+      enddo
+C---
+          if (M .eq. 3) then
+            if (Rtemp .gt. R1) then
+	      write(6,525) Re, Rtemp, Vecm0, Vmsp, Vtemp
+	    else
+              write(6,527) Re,R1,Rtemp,Vtemp
+	    endif
+	  endif
+C-
+            b0 = 0.0d0
+        if (ishift .eq. 0) go to 150
+      do i=2,N
+        if (i .le. i1 .and. v(i) .lt. v(i-1)) b= v(i)  
+      enddo
+C
+        if (b .lt. 0.0) b=-b
+c
+        if (Nad .eq. 0) b0 = b
+        if (Nad .gt. 0) b0 = Add
+C
+C--- Shift potential v(i) such that the minimum is zero.
+C
+        if (M .eq. 4) then
+          write(6,620)  b0
+          write(11,630) b0
+        else if (M .eq. 3) then
+          write(6,625)  b0
+          write(11,635) b0
+        endif
+C
+  150 do 200 i=1,N
+            vshi = v(i) + b0
+          write(6,520)  rr(i),vshi
+          write(11,522) rr(i),vshi*aucm
+        if (M .eq. 3) then
+          write(13,520) rr(i),u(i) + b0
+          write(14,520) rr(i),vshi
+          write(15,520) rr(i),vmos(i) + b0
+          write(16,520) rr(i),vryd(i) + b0
+          write(17,520) rr(i),vpg0(i) + b0
+        endif
+  200 continue
+C
+C------ Print the cofficients an of HMS or SF (ECM) potential .
+c         write(4,720) 
+      do  222 i = 2, ms
+c         write(4,550) i, an(i)
+          write(4,560) an(i)
+222   continue
+C--------------  End print
+C
+C====================================================================
+  501 format(//'  The Radial is Re = ',f10.6,' Anstr.  = ',f10.6,' a_0')
+  502 format(//'  The Spectroscopic Constants are: '//)
+  503 format(5x,A,1pe16.8,A,1pe16.8,A,/)
+  510 format(//'  ***  MORSE vibrational potentials  ***'/,
+     #'   R(a0)            V(R)  ',/)
+  515 format(//'  ***  Harmonic Oscillator potentials ***'/,
+     #'   R(a0)            V(R)  ',/)
+  520 format(f10.6,1x,(1PE24.16))
+  521 format(f10.6,1x,3(1PE24.16))
+  522 format(f10.6,2x,f17.6)
+c 525 format(//3x,'The largest R (< R_e) of |V_ecm - V_ms| > ',
+c    # 1pe12.6,' is ',1pe9.3,' a_0')
+  525 format(//9x,'V_ecm(R) = V_model(R) for those R =< Rtemp : ', 
+     #//3x,'Re(a0)',4x,'Rtemp(a0)',2x,'V_ecm(cut;R)',2x,
+     #'V_model(R)',4x,'V_dif(R)',/5(f10.6,2x) )
+c    #10x,'V_dif(R)',/2x,f10.6,x,3(1pe16.8,2x) )
+c 527 format(//3x,'The value of |V_EMS - V_MS| between R = ',
+c    # f10.6,' and ',f10.6,//3x,'are all < ',1pe12.6)
+  527 format(//5x,'The cutoff values when Rtemp < Rmin : ',
+     #/5x,'Re(a0)',4x,'Rmin(a0)',4x,'Rtemp(a0)',
+     #3x,'V_ecm(cut;R)',/4x,3(f12.8,2x),1pe16.8)
+  530 format(//' For Sun-Murrell-Sorbie potentials, Lambda = ',
+     #f8.4,2x,':',//,'   The dissociation energy   De  = ',
+     #1PE14.6,//,'   The adjustable parameter beta = ',1PE14.6,
+     #//,'                     D = De*beta = ',1PE14.6,
+     #//,'   and the nth force constants are ',
+     #//5x,'  n   f(n; Har/ao**n) '/)
+  531 format(//3x,'For Sun-Feng (ECM) potentials, Lambda = ',f8.4,
+     #2x,':',//,'   The dissociation energy   De  = ',1PE14.6,
+     #//,'   and the nth force constants are ',
+     #//5x,'  n   f(n; Har/ao**n) '/)
+  540 format(//' The expansion coefficients in Sun - ',
+     #/,'Murrell - Sorbie potentials are :',
+     #//5x,'  n    a(n; 1/ao**n) '/)
+  541 format(//' The expansion coefficients in SF potential are : ',
+     #//5x,'  n    a(n; 1/ao**n) '/)
+  550 format(5x,i3,2x,1PE16.8)
+  560 format(1PE24.16)
+  570 format(//' --- Using Huxley-Murrell formulae --- ')
+  580 format(//' The nth force constants for',
+     #' Murrell - Sorbie potentials are :',
+     #//5x,'F2 =',1PE14.6,4x,
+     #/5x,'F3 =',1PE14.6,4x,
+     #/5x,'F4 =',1PE14.6,4x)
+  590 format(//' The expansion coefficients in',
+     #' Sun-Murrell-Sorbie potentials are :',
+     #//5x,'a1 =',1PE14.6,4x,
+     #/5x,'a2 =',1PE14.6,4x,
+     #/5x,'a3 =',1PE14.6,4x)
+c 600 format(//'  ***  3-term Sun-Murrell-Sorbie potentials ***',/,
+  600 format(//'  ***  3-term Sun-Feng (ECM) potentials ***',/,
+     #'             ( Before shifting ) ',//,
+     #'    R(a0)            V(R)  ',/)
+  605 format(//'  ***  Huxley-Murrell-Sorbie potentials ***',/,
+     #'             ( Before shifting ) ',//,
+     #'    R(a0)            V(R)  ',/)
+c 610 format(//'  ***  ms-term Sun-Murrell-Sorbie potentials ***',/,
+  610 format(//'  ***  ms-term Sun-Feng (ECM) potentials ***;  ',
+     #' ms =',i3,/8x,'       ( Before shifting ) ',//,
+     #'     R(a0)            V(R)  ',/)
+c 615 format(//'  ***  Sun-Murrell-Sorbie potentials ***',/,
+  615 format(//'  ***  ECM potential differences ***',/,
+     #'          ( Before shifting ) ',//,
+     #'    R(a0)       V(R) - V(R;3-term) ',/)
+  620 format(//'  ***  Huxley-Murrell-Sorbie potentials ***',/,
+     #'       ( After shifting ) ',//,
+     #'   The shifting constant is  Bshift =',f12.8,//
+     #'    R(a0)         V(R; a.u.)  ',/)
+  625 format(//'  ***  Sun-Feng (ECM) potentials ***',/,
+     #'           ( After shifting ) ',//,
+     #'   The shifting constant is  Bshift =',f12.8,//
+     #'    R(a0)         V(R; a.u.)  ',/)
+  630 format(//'  ***  Huxley-Murrell-Sorbie potentials ***',/,
+     #'       ( After shifting ) ',//,
+     #'   The shifting constant is  Bshift =',f12.8,//
+     #'    R(a0)         V(R; cm-1)  ',/)
+  635 format(//'  ***  Sun-Feng (ECM) potentials ***',/,
+     #'           ( After shifting ) ',//,
+     #'   The shifting constant is  Bshift =',f12.8,//
+     #'    R(a0)         V(R; cm-1)  ',/)
+  655 format(//'  ***  3-term Sun-Feng (ECM) potentials ***',/,
+     #'             ( After shifting ) ',//,
+     #'    R(a0)         V(R; a.u.)  ',/)
+  660 format(//'  ***  ms-term Sun-Feng (ECM) potentials ***',/,
+     #'             ( After shifting ) ',//,
+     #'    R(a0)         V(R; a.u.)  ',/)
+  665 format(//'  ***  Huxley-Murrell-Sorbie potentials ***',/,
+     #'             ( After shifting ) ',//,
+     #'    R(a0)         V(R; a.u.)  ',/)
+  670 format(//4x,'  ***  Morse potentials ***',/3x,
+     #'       ( After shifting ) ',//,
+     #'    R(a0)         V(R; a.u.)  ',/)
+  680 format(//3x,'  ***  Rydberg potentials ***',/3x,
+     #'       ( After shifting ) ',//,
+     #'    R(a0)         V(R; a.u.)  ',/)
+  690 format(//1x,'  ***  Pseudo-Gaussion (PG) potentials ***',
+     #/7x,'       ( After shifting ) ',//,
+     #'    R(a0)         V(R; a.u.)  ',/)
+  720 format(//' Expansion coefficients a(n) of ECM potential :',
+     #//5x,'  n    a(n; 1/ao**n) '/)
+c
+  800   stop
+      end
+c
+      REAL*8 FUNCTION FACX(I)
+        implicit real*8(a-h,o-z)
+C-----------------------------------------------------------------
+C     THIS IS A FACTORIAL FUNCTION  I!
+C-----------------------------------------------------------------
+      DIMENSION TABLE(15)
+      DATA TABLE/1.0D+00,2.0D+00,6.0D+00,24.0D+00,120.0D+00,720.0D+00,
+     1      5040.0D+00,40320.0D+00,362880.0D+00,
+     2      36288.0D+02,399168.0D+02,4790016.0D+02,62270208.0D+02,
+     3      871782912.0D+02,1307674368.0D+03/
+c---
+        FACX=1.0
+      IF (I)95,100,10
+   10 IF (I-15)20,20,30
+   20 FACX=TABLE(I)
+      GO TO 200
+   30 FJ=16.0D+00
+      FACX=TABLE(15)
+      DO 40 J=16,I
+      FACX=FACX*FJ
+   40 FJ=FJ+1.0D+00
+      GO TO 200
+   95 FACX=0.0D+00
+  100 CONTINUE
+  200 RETURN
+      END
+
+C
+      subroutine calaaf
+      implicit real*8(a-h,o-z)
+      common /aafcom/ aaf(4,10)
+      common /fms/ ms
+      common /spectra/ amu,Re,We,WeXe,WeYe,WeZe,alphae,gamae  
+c---
+  	       alp = amu*We
+  	  aaf(1,1) = 5.0d0/(48.0d0*We*alp**3)
+   	  aaf(1,2) = -1.0d0/(16.0d0*alp**2)
+  	  aaf(1,3) = 217.0d0/(92160.0d0*We*alp**5)
+  	  aaf(1,4) = 177.0d0/(55296.0d0*We*alp**5)
+  	  aaf(1,5) = -WeXe
+
+    	  aaf(2,1) = -17.0d0/(2304.0d0*We*alp**4)
+  	  aaf(2,2) = -7.0d0/(288.0d0*We*alp**4)
+  	  aaf(2,3) = 1.0d0/(288.0d0*alp**3)
+  	  aaf(2,4) = -829.0d0/(3317760.0d0*We*alp**6)
+  	  aaf(2,5) = -WeYe
+
+  	  aaf(3,1) = -7.0d0/(5120.0d0*We*alp**5)
+  	  aaf(3,2) = -11.0d0/(9216.0d0*We*alp**5)
+  	  aaf(3,3) =  -WeZe
+
+   	  aaf(4,1) = -(1.0d0+95.0d0/(8.0d0*alp**2*Re**4))/
+     # (2.0d0*alp**3*Re**3)
+  	  aaf(4,2) = 335.0d0/(384.0d0*alp**5*Re**6)
+  	  aaf(4,3) = -19.0d0/(96.0d0*alp**5*Re**5)
+  	  aaf(4,4) = (5.0d0+134939.0d0/(720.0d0*alp**2*Re**4))/
+     # (256.0d0*alp**5*Re**4)
+  	  aaf(4,5) = -(3.0d0+175.0d0/(8.0d0*alp**2*Re**4))/
+     # (2.0d0*amu*alp*Re**4) - alphae
+        if (ms .eq. 4) then
+  	   aaf(4,5) = -3.0d0/(2.0d0*amu*alp*Re**4) - alphae
+        endif
+C
+  	  do 10 k = 1, 4
+  	    write(24,100)aaf(k,1),aaf(k,2),aaf(k,3),aaf(k,4),aaf(k,5)
+10  	continue
+100  	format(1x,5(1pe16.7))
+C
+ 	  return
+  	end
+C===
+      subroutine calff(ff,N,N1,method)
+        implicit real*8(a-h,o-z)
+      parameter (NP=40)
+      dimension  x(NP),fvec(NP),ff(N1)
+      logical check
+C-----------------------------------------------------
+C N=ms-1; N=3 : f3, f4, f5     => x1, x2, x3 ;  
+c         N=4 : f3, f4, f5, f6 => x1, x2, x3, x4.
+C-----------------------------------------------------
+  	  check = .false.
+  	do 10 k = 1, N
+  	   x(k) = ff(k+2)
+10  	continue
+      if (method .eq. 1) then
+  	  call broydn(x,N,NP,check)
+      else if (method .eq. 2) then
+  	  call newt(x,N,NP,check)
+      endif
+C
+  	  call funcv(NP,N,x,fvec)
+  	do 20 k = 1,N
+  	   write(25,*)"fvec(",k,") = ",fvec(k)
+20  	continue
+  	do 30 k = 1, N
+  	   ff(k+2) = x(k) 
+30  	continue
+  	return
+  	end
+C===
+      subroutine funcv(n1,n,x,fvec)
+        implicit real*8(a-h,o-z)
+      dimension  x(n1),fvec(n1)
+      common /aafcom/ aaf(4,10)
+      common /fms/ ms
+c---
+      if (ms .eq. 5) then
+       fvec(1) = aaf(1,1)*x(1)**2+aaf(1,2)*x(2)+aaf(1,3)*x(3)**2
+     #  +aaf(1,4)*x(2)*x(4)+aaf(1,5)
+       fvec(2) = aaf(2,1)*x(2)**2+aaf(2,2)*x(1)*x(3)
+     #  +aaf(2,3)*x(4)+aaf(2,4)*x(4)**2+aaf(2,5)
+       fvec(3) = aaf(3,1)*x(3)**2+aaf(3,2)*x(2)*x(4)+aaf(3,3)
+       fvec(4) = aaf(4,1)*x(1)+aaf(4,2)*x(2)
+     #  +aaf(4,3)*x(3)+aaf(4,4)*x(4)+aaf(4,5)
+c
+      else if (ms .eq. 4) then
+       fvec(1) = aaf(1,1)*x(1)**2+aaf(1,2)*x(2)+aaf(1,3)*x(3)**2
+     #  +aaf(1,5)
+       fvec(2) = aaf(2,1)*x(2)**2+aaf(2,2)*x(1)*x(3)
+     #  +aaf(2,5)
+       fvec(3) = aaf(4,1)*x(1)+aaf(4,2)*x(2)
+     #  +aaf(4,3)*x(3)+aaf(4,5)
+      endif
+        return 
+      end
+C===
+      SUBROUTINE broydn(x,n,n1,check)
+        implicit real*8(a-h,o-z)
+      LOGICAL check,restrt,sing,skip
+      PARAMETER (NP=40,MAXITS=20000,EPS=1.e-30,TOLF=1.e-30)
+      PARAMETER (TOLMIN=1.e-30,TOLX=EPS,STPMX=900.0)
+C     LOGICAL restrt,sing,skip
+      COMMON /newtv/ fvec(NP),nn
+      dimension  x(n1),c(NP),d(NP),fvcold(NP),P(NP),qt(NP,NP)
+      dimension  r(NP,NP),s(NP),t(NP),w(NP),xold(NP),g(NP)
+      EXTERNAL fmin
+c---
+CU    USES fdjac,fmin,lnsrch,qrdcmp,qrupdt,rsolv
+c---
+      nn=n
+C
+c- "fmin" produces NEW array  fvec :
+c
+      f=fmin(n1,x)
+        test=0.
+      do 11 i=1,n
+        if(abs(fvec(i)).gt.test)test=abs(fvec(i))
+11    continue
+        if (test .lt. 0.01*TOLF) return
+          sum=0.
+      do 12 i=1,n
+        sum=sum+x(i)**2
+12    continue
+        stpmax=STPMX*max(sqrt(sum),float(n))
+        restrt=.true.
+      do 44 its=1,MAXITS
+        if(restrt)then
+          call fdjac(n,x,fvec,NP,r)
+          call qrdcmp(r,n,NP,c,d,sing)
+            if(sing) pause 'singular Jacobian in broydn'
+          do 14 i=1,n
+            do 13 j=1,n
+              qt(i,j)=0.
+13          continue
+            qt(i,i)=1.
+14        continue
+          do 18 k=1,n-1
+            if(c(k).ne.0.)then
+              do 17 j=1,n
+                sum=0.
+                do 15 i=k,n
+                  sum=sum+r(i,k)*qt(i,j)
+15              continue
+                sum=sum/c(k)
+                do 16 i=k,n
+                  qt(i,j)=qt(i,j)-sum*r(i,k)
+16              continue
+17            continue
+            endif
+18        continue
+          do 21 i=1,n
+            r(i,i)=d(i)
+            do 19 j=1,i-1
+              r(i,j)=0.
+19          continue
+21        continue
+        else
+          do 22 i=1,n
+            s(i)=x(i)-xold(i)
+22        continue
+          do 24 i=1,n
+            sum=0.
+            do 23 j=i,n
+              sum=sum+r(i,j)*s(j)
+23          continue
+            t(i)=sum
+24        continue
+          skip=.true.
+          do 26 i=1,n
+            sum=0.
+            do 25 j=1,n
+              sum=sum+qt(j,i)*t(j)
+25          continue
+            w(i)=fvec(i)-fvcold(i)-sum
+            if(abs(w(i)).ge.EPS*(abs(fvec(i))+abs(fvcold(i))))then
+              skip=.false.
+            else
+              w(i)=0.
+            endif
+26        continue
+          if(.not.skip)then
+            do 28 i=1,n
+              sum=0.
+              do 27 j=1,n
+                sum=sum+qt(i,j)*w(j)
+27            continue
+              t(i)=sum
+28          continue
+            den=0.
+            do 29 i=1,n
+              den=den+s(i)**2
+29          continue
+            do 31 i=1,n
+              s(i)=s(i)/den
+31          continue
+              call qrupdt(r,qt,n,NP,t,s)
+            do 32 i=1,n
+              if(r(i,i).eq.0.) pause 'r singular in broydn'
+              d(i)=r(i,i)
+32          continue
+          endif
+        endif
+        do 34 i=1,n
+          sum=0.
+          do 33 j=1,n
+            sum=sum+qt(i,j)*fvec(j)
+33        continue
+          g(i)=sum
+34      continue
+        do 36 i=n,1,-1
+          sum=0.
+          do 35 j=1,i
+            sum=sum+r(j,i)*g(j)
+35        continue
+          g(i)=sum
+36      continue
+        do 37 i=1,n
+          xold(i)=x(i)
+          fvcold(i)=fvec(i)
+37      continue
+        fold=f
+        do 39 i=1,n
+          sum=0.
+          do 38 j=1,n
+            sum=sum+qt(i,j)*fvec(j)
+38        continue
+          p(i)=-sum
+39      continue
+          call rsolv(r,n,NP,d,p)
+C
+c- "lnsrch" produces NEW array  fvec :
+c
+        call lnsrch(NP,n,xold,fold,g,p,x,f,stpmax,check)
+C       call lnsrch(NP,n,xold,fold,g,p,x,f,stpmax,check,fmin)
+          test=0.
+        do 41 i=1,n
+          if(abs(fvec(i)).gt.test)test=abs(fvec(i))
+41      continue
+        if(test.lt.TOLF)then
+          check=.false.
+          return
+        endif
+        if(check)then
+          if(restrt)then
+            return
+          else
+            test=0.
+            den=max(f,.5*n)
+            do 42 i=1,n
+              temp=abs(g(i))*max(abs(x(i)),1.)/den
+              if(temp.gt.test)test=temp
+42          continue
+            if(test.lt.TOLMIN)then
+              return
+            else
+              restrt=.true.
+            endif
+          endif
+        else
+          restrt=.false.
+          test=0.
+          do 43 i=1,n
+            temp=(abs(x(i)-xold(i)))/max(abs(x(i)),1.)
+            if(temp.gt.test)test=temp
+43        continue
+          if(test.lt.TOLX)return
+        endif
+44    continue
+        pause 'MAXITS exceeded in broydn'
+      END
+
+CN 
+
+      SUBROUTINE fdjac(n,x,fvec,np,df)
+        implicit real*8(a-h,o-z)
+      PARAMETER (NP1=40,EPS=1.e-12)
+      dimension  df(np,np),fvec(np),x(np),f(NP1)
+c---
+c     dimension  df(np,np),fvec(n),x(n),f(NP1)
+CU    USES funcv
+c---
+      do 12 j=1,n
+        temp=x(j)
+        h=EPS*abs(temp)
+        if(h.eq.0.)h=EPS
+        x(j)=temp+h
+           h=x(j)-temp
+        call funcv(np,n,x,f)
+           x(j)=temp
+        do 11 i=1,n
+          df(i,j)=(f(i)-fvec(i))/h
+11      continue
+12    continue
+      return
+      END
+
+CN
+
+C     SUBROUTINE lnsrch(np,n,xold,fold,g,p,x,f,stpmax,check,func)
+c     SUBROUTINE lnsrch(np,n,xold,fold,g,p,x,f,stpmax,check,fmin)
+c===============
+      SUBROUTINE lnsrch(np,n,xold,fold,g,p,x,f,stpmax,check)
+        implicit real*8(a-h,o-z)
+      LOGICAL check
+      PARAMETER (ALF=1.e-12,TOLX=1.e-12)
+      dimension  g(np),p(np),x(np),xold(np)
+      EXTERNAL fmin
+C---
+C     EXTERNAL func
+CU    USES func
+C-  There is NO an external function called "func" in this code !
+CU    USES fmin
+C---
+      check=.false.
+        sum=0.0d0
+      do 11 i=1,n
+        sum=sum+p(i)*p(i)
+11    continue
+      sum=sqrt(sum)
+      if(sum.gt.stpmax)then
+        do 12 i=1,n
+          p(i)=p(i)*stpmax/sum
+12      continue
+      endif
+      slope=0.
+      do 13 i=1,n
+        slope=slope+g(i)*p(i)
+13    continue
+      test=0.
+      do 14 i=1,n
+        temp=abs(p(i))/max(abs(xold(i)),1.)
+        if(temp.gt.test)test=temp
+14    continue
+      alamin=TOLX/test
+      alam=1.
+1     continue
+        do 15 i=1,n
+          x(i)=xold(i)+alam*p(i)
+15      continue
+C
+c- "fmin" produces NEW array  fvec :
+c
+        f=fmin(np,x)
+C       f=func(x)
+        if(alam.lt.alamin)then
+          do 16 i=1,n
+            x(i)=xold(i)
+16        continue
+          check=.true.
+          return
+        else if(f .le.  fold+ALF*alam*slope )then
+          return
+        else
+          if(alam.eq.1.)then
+            tmplam=-slope/(2.*(f-fold-slope))
+          else
+            rhs1=f-fold-alam*slope
+            rhs2=f2-fold2-alam2*slope
+            a=(rhs1/alam**2-rhs2/alam2**2)/(alam-alam2)
+            b=(-alam2*rhs1/alam**2+alam*rhs2/alam2**2)/(alam-alam2)
+            if(a.eq.0.)then
+              tmplam=-slope/(2.*b)
+            else
+              disc=b*b-3.*a*slope
+              tmplam=(-b+sqrt(disc))/(3.*a)
+            endif
+            if(tmplam.gt..5*alam)tmplam=.5*alam
+          endif
+        endif
+        alam2=alam
+        f2=f
+        fold2=fold
+        alam=max(tmplam,.1*alam)
+      goto 1
+      END
+
+CN
+
+      SUBROUTINE qrupdt(r,qt,n,np,u,v)
+        implicit real*8(a-h,o-z)
+      dimension  r(np,np),qt(np,np),u(np),v(np)
+c---
+CU    USES rotate
+c---
+      do 11 k=n,1,-1
+        if(u(k).ne.0.)goto 1
+11    continue
+        k=1
+1     do 12 i=k-1,1,-1
+        call rotate(r,qt,n,np,i,u(i),-u(i+1))
+        if(u(i).eq.0.)then
+          u(i)=abs(u(i+1))
+        else if(abs(u(i)).gt.abs(u(i+1)))then
+          u(i)=abs(u(i))*sqrt(1.+(u(i+1)/u(i))**2)
+        else
+          u(i)=abs(u(i+1))*sqrt(1.+(u(i)/u(i+1))**2)
+        endif
+12    continue
+      do 13 j=1,n
+        r(1,j)=r(1,j)+u(1)*v(j)
+13    continue
+      do 14 i=1,k-1
+        call rotate(r,qt,n,np,i,r(i,i),-r(i+1,i))
+14    continue
+        return
+      END
+
+CN
+
+      REAL*8 FUNCTION fmin(n1,x)
+        implicit real*8(a-h,o-z)
+      PARAMETER (NP=40)
+      COMMON /newtv/ fvec(NP),n
+      dimension  x(n1)
+      SAVE /newtv/
+c---
+CU    USES funcv
+c---
+      call funcv(NP,n,x,fvec)
+        sum=0.
+      do 11 i=1,n
+        sum=sum+fvec(i)**2
+11    continue
+        fmin=0.5*sum
+      return
+      END
+
+CN
+
+      SUBROUTINE qrdcmp(a,n,np,c,d,sing)
+        implicit real*8(a-h,o-z)
+      dimension  a(np,np),c(np),d(np)
+      LOGICAL sing
+c---
+      sing=.false.
+        scale=0.
+      do 17 k=1,n-1
+        do 11 i=k,n
+          scale=max(scale,abs(a(i,k)))
+11      continue
+        if(scale.eq.0.)then
+          sing=.true.
+          c(k)=0.
+          d(k)=0.
+        else
+          do 12 i=k,n
+            a(i,k)=a(i,k)/scale
+12        continue
+          sum=0.
+          do 13 i=k,n
+            sum=sum+a(i,k)**2
+13        continue
+          sigma=sign(sqrt(sum),a(k,k))
+          a(k,k)=a(k,k)+sigma
+          c(k)=sigma*a(k,k)
+          d(k)=-scale*sigma
+          do 16 j=k+1,n
+            sum=0.
+            do 14 i=k,n
+              sum=sum+a(i,k)*a(i,j)
+14          continue
+            tau=sum/c(k)
+            do 15 i=k,n
+              a(i,j)=a(i,j)-tau*a(i,k)
+15          continue
+16        continue
+        endif
+17    continue
+        d(n)=a(n,n)
+      if(d(n).eq.0.)sing=.true.
+        return
+      END
+
+CN
+
+      SUBROUTINE rsolv(a,n,np,d,b)
+        implicit real*8(a-h,o-z)
+      dimension  a(np,np),b(np),d(np)
+c---
+      b(n)=b(n)/d(n)
+      do 12 i=n-1,1,-1
+        sum=0.
+        do 11 j=i+1,n
+          sum=sum+a(i,j)*b(j)
+11      continue
+        b(i)=(b(i)-sum)/d(i)
+12    continue
+      return
+      END
+
+CN
+
+      SUBROUTINE rotate(r,qt,n,np,i,a,b)
+        implicit real*8(a-h,o-z)
+      dimension  r(np,np),qt(np,np)
+c---
+      if(a .eq. 0.) then
+        c=0.
+        s=sign(1.,b)
+      else if(abs(a).gt.abs(b))then
+        fact=b/a
+        c=sign(1./sqrt(1.+fact**2),a)
+        s=fact*c
+      else
+        fact=a/b
+        s=sign(1./sqrt(1.+fact**2),b)
+        c=fact*s
+      endif
+      do 11 j=i,n
+        y=r(i,j)
+        w=r(i+1,j)
+        r(i,j)=c*y-s*w
+        r(i+1,j)=s*y+c*w
+11    continue
+      do 12 j=1,n
+        y=qt(i,j)
+        w=qt(i+1,j)
+        qt(i,j)=c*y-s*w
+        qt(i+1,j)=s*y+c*w
+12    continue
+      return
+      END
+
+CN
+      SUBROUTINE newt(x,n,n1,check)
+        implicit real*8(a-h,o-z)
+      LOGICAL check
+      PARAMETER (NP=40,MAXITS=90000,TOLF=1.e-30,TOLMIN=1.e-30)
+      PARAMETER (TOLX=1.e-30,STPMX=900.0)
+      dimension  x(n1),fjac(NP,NP),g(NP),p(NP),xold(NP),indx(NP)
+      COMMON /newtv/ fvec(NP),nn
+      SAVE /newtv/
+      EXTERNAL fmin
+c---
+CU    USES fdjac,fmin,lnsrch,lubksb,ludcmp
+c---
+        nn=n
+C
+c- "fmin" produces NEW array  fvec :
+c
+      f=fmin(n1,x)
+        test=0.
+      do 11 i=1,n
+        if(abs(fvec(i)).gt.test)test=abs(fvec(i))
+11    continue
+      if(test.lt..01*TOLF)return
+      sum=0.
+      do 12 i=1,n
+        sum=sum+x(i)**2
+12    continue
+      stpmax=STPMX*max(sqrt(sum),float(n))
+C
+c- "fdjac" produces ANOTHER array  fvec :
+c
+      do 21 its=1,MAXITS
+        call fdjac(n,x,fvec,NP,fjac)
+        do 14 i=1,n
+          sum=0.
+          do 13 j=1,n
+            sum=sum+fjac(j,i)*fvec(j)
+13        continue
+          g(i)=sum
+14      continue
+        do 15 i=1,n
+          xold(i)=x(i)
+15      continue
+        fold=f
+        do 16 i=1,n
+          p(i)=-fvec(i)
+16      continue
+        call ludcmp(fjac,n,NP,indx,d)
+        call lubksb(fjac,n,NP,indx,p)
+C
+c- "lnsrch" produces ANOTHER array  fvec :
+c
+        call lnsrch(NP,n,xold,fold,g,p,x,f,stpmax,check)
+C       call lnsrch(NP,n,xold,fold,g,p,x,f,stpmax,check,fmin)
+          test=0.
+        do 17 i=1,n
+          if(abs(fvec(i)).gt.test)test=abs(fvec(i))
+17      continue
+        if(test.lt.TOLF)then
+          check=.false.
+          return
+        endif
+        if(check)then
+          test=0.
+          den=max(f,.5*n)
+          do 18 i=1,n
+            temp=abs(g(i))*max(abs(x(i)),1.)/den
+            if(temp.gt.test)test=temp
+18        continue
+          if(test.lt.TOLMIN)then
+            check=.true.
+          else
+            check=.false.
+          endif
+          return
+        endif
+        test=0.
+        do 19 i=1,n
+          temp=(abs(x(i)-xold(i)))/max(abs(x(i)),1.)
+          if(temp.gt.test)test=temp
+19      continue
+        if(test.lt.TOLX)return
+21    continue
+        pause 'MAXITS exceeded in newt'
+      END
+C===
+      SUBROUTINE lubksb(a,n,np,indx,b)
+        implicit real*8(a-h,o-z)
+      dimension  a(np,np),b(np),indx(np)
+c---
+C     dimension  a(np,np),b(n),indx(n)
+c---
+      ii=0
+      do 12 i=1,n
+        ll=indx(i)
+        sum=b(ll)
+        b(ll)=b(i)
+        if (ii.ne.0)then
+          do 11 j=ii,i-1
+            sum=sum-a(i,j)*b(j)
+11        continue
+        else if (sum.ne.0.) then
+          ii=i
+        endif
+        b(i)=sum
+12    continue
+      do 14 i=n,1,-1
+        sum=b(i)
+        do 13 j=i+1,n
+          sum=sum-a(i,j)*b(j)
+13      continue
+        b(i)=sum/a(i,i)
+14    continue
+      return
+      END
+
+CN
+
+      SUBROUTINE ludcmp(a,n,np,indx,d)
+        implicit real*8(a-h,o-z)
+      PARAMETER (NMAX=500,TINY=1.0e-20)
+      dimension  indx(np),a(np,np),vv(NMAX)
+c---
+C     dimension  indx(n),a(np,np),vv(NMAX)
+c---
+        d=1.
+      do 12 i=1,n
+        aamax=0.
+        do 11 j=1,n
+          if (abs(a(i,j)).gt.aamax) aamax=abs(a(i,j))
+11      continue
+        if (aamax.eq.0.) pause 'singular matrix in ludcmp'
+        vv(i)=1./aamax
+12    continue
+      do 19 j=1,n
+        do 14 i=1,j-1
+          sum=a(i,j)
+          do 13 k=1,i-1
+            sum=sum-a(i,k)*a(k,j)
+13        continue
+          a(i,j)=sum
+14      continue
+        aamax=0.
+        do 16 i=j,n
+          sum=a(i,j)
+          do 15 k=1,j-1
+            sum=sum-a(i,k)*a(k,j)
+15        continue
+          a(i,j)=sum
+          dum=vv(i)*abs(sum)
+          if (dum.ge.aamax) then
+            imax=i
+            aamax=dum
+          endif
+16      continue
+        if (j.ne.imax)then
+          do 17 k=1,n
+            dum=a(imax,k)
+            a(imax,k)=a(j,k)
+            a(j,k)=dum
+17        continue
+          d=-d
+          vv(imax)=vv(j)
+        endif
+        indx(j)=imax
+        if(a(j,j).eq.0.)a(j,j)=TINY
+        if(j.ne.n)then
+          dum=1./a(j,j)
+          do 18 i=j+1,n
+            a(i,j)=a(i,j)*dum
+18        continue
+        endif
+19    continue
+        return
+      END
+
+CN
+
